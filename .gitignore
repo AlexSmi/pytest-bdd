@@ -53,3 +53,5 @@ nosetests.xml
 /src
 /share
 /local
+
+# delete
