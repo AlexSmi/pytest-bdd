@@ -13,13 +13,12 @@ from .utils import CONFIG_STACK
 def pytest_addhooks(pluginmanager):
     """Register plugin hooks."""
     from pytest_bdd import hooks
-
     pluginmanager.add_hookspecs(hooks)
 
 
-@given("trace")
-@when("trace")
-@then("trace")
+@given('trace')
+@when('trace')
+@then('trace')
 def trace():
     """Enter pytest's pdb trace."""
     pytest.set_trace()
@@ -34,7 +33,11 @@ def pytest_addoption(parser):
 
 
 def add_bdd_ini(parser):
-    parser.addini("bdd_features_base_dir", "Base features directory.")
+    parser.addini('bdd_features_base_dir',
+                  'Base features directory.')
+    parser.addini('bdd_strict_gherkin',
+                  'Parse features to be strict gherkin.',
+                  type='bool', default=True)
 
 
 @pytest.mark.trylast
@@ -78,7 +81,7 @@ def pytest_bdd_after_step(request, feature, scenario, step, step_func, step_func
 
 
 def pytest_cmdline_main(config):
-    return generation.cmdline_main(config)
+    generation.cmdline_main(config)
 
 
 def pytest_bdd_apply_tag(tag, function):
@@ -99,10 +102,8 @@ def pytest_collection_modifyitems(session, config, items):
     #  since there may be other hooks that are executed before this and that want to reorder item as well
     def item_key(item):
         if isinstance(item, pytest.Function):
-            declaration_order = getattr(item.function, "__pytest_bdd_counter__", 0)
+            declaration_order = getattr(item.function, '__pytest_bdd_counter__', 0)
         else:
             declaration_order = 0
-        func, linenum = item.reportinfo()[:2]
-        return (func, linenum if linenum is not None else -1, declaration_order)
-
+        return (item.reportinfo()[:2], declaration_order)
     items.sort(key=item_key)

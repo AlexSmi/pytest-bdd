@@ -10,14 +10,13 @@ provided in the pytest parametrization table.
 
 Syntax example:
 
-    Feature: Articles
-        Scenario: Publishing the article
-            Given I'm an author user
-            And I have an article
-            When I go to the article page
-            And I press the publish button
-            Then I should not see the error message
-            And the article should be published  # Note: will query the database
+    Scenario: Publishing the article
+        Given I'm an author user
+        And I have an article
+        When I go to the article page
+        And I press the publish button
+        Then I should not see the error message
+        And the article should be published  # Note: will query the database
 
 :note: The "#" symbol is used for comments.
 :note: There're no multiline steps, the description of the step must fit in
@@ -59,8 +58,7 @@ STEP_PREFIXES = [
 ]
 
 STEP_PARAM_RE = re.compile(r"\<(.+?)\>")
-COMMENT_RE = re.compile(r"(^|(?<=\s))#")
-SPLIT_LINE_RE = re.compile(r"(?<!\\)\|")
+COMMENT_RE = re.compile(r'(^|(?<=\s))#')
 
 
 def get_step_type(line):
@@ -84,7 +82,7 @@ def strip_comments(line):
     """
     res = COMMENT_RE.search(line)
     if res:
-        line = line[: res.start()]
+        line = line[:res.start()]
     return line.strip()
 
 
@@ -97,7 +95,7 @@ def parse_line(line):
     """
     for prefix, _ in STEP_PREFIXES:
         if line.startswith(prefix):
-            return prefix.strip(), line[len(prefix) :].strip()
+            return prefix.strip(), line[len(prefix):].strip()
     return "", line
 
 
@@ -138,19 +136,11 @@ def get_tags(line):
 
     :return: List of tags.
     """
-    if not line or not line.strip().startswith("@"):
+    if not line or not line.strip().startswith('@'):
         return set()
-    return set((tag.lstrip("@") for tag in line.strip().split(" @") if len(tag) > 1))
-
-
-def split_line(line):
-    """Split the given Examples line.
-
-    :param str|unicode line: Feature file Examples line.
-
-    :return: List of strings.
-    """
-    return [cell.replace("\\|", "|").strip() for cell in SPLIT_LINE_RE.split(line[1:-1])]
+    return (
+        set((tag.lstrip('@') for tag in line.strip().split(' @') if len(tag) > 1))
+    )
 
 
 def get_features(paths, **kwargs):
@@ -166,7 +156,12 @@ def get_features(paths, **kwargs):
         if path not in seen_names:
             seen_names.add(path)
             if op.isdir(path):
-                features.extend(get_features(glob2.iglob(op.join(path, "**", "*.feature")), **kwargs))
+                features.extend(
+                    get_features(
+                        glob2.iglob(op.join(path, "**", "*.feature")),
+                        **kwargs
+                    )
+                )
             else:
                 base, name = op.split(path)
                 feature = Feature.get_feature(base, name, **kwargs)
@@ -209,7 +204,9 @@ class Examples(object):
         """
         if param in self.example_params:
             raise exceptions.ExamplesNotValidError(
-                """Example rows should contain unique parameters. "{0}" appeared more than once""".format(param)
+                """Example rows should contain unique parameters. "{0}" appeared more than once""".format(
+                    param,
+                )
             )
         self.example_params.append(param)
         self.vertical_examples.append(values)
@@ -235,7 +232,7 @@ class Examples(object):
                     raw_value = example[index]
                     if converters and param in converters:
                         value = converters[param](raw_value)
-                        if not builtin or value.__class__.__module__ in {"__builtin__", "builtins"}:
+                        if not builtin or value.__class__.__module__ in {'__builtin__', 'builtins'}:
                             example[index] = value
                 params.append(example)
             return [self.example_params, params]
@@ -251,14 +248,17 @@ class Examples(object):
 
 
 class Feature(object):
+
     """Feature."""
 
-    def __init__(self, basedir, filename, encoding="utf-8"):
+    def __init__(self, basedir, filename, encoding="utf-8", strict_gherkin=True):
         """Parse the feature file.
 
         :param str basedir: Feature files base directory.
         :param str filename: Relative path to the feature file.
         :param str encoding: Feature file encoding (utf-8 by default).
+        :param bool strict_gherkin: Flag whether it's a strictly gherkin scenario or not (e.g. it will validate correct
+            gherkin language (given-when-then))
         """
         self.scenarios = OrderedDict()
         self.rel_filename = op.join(op.basename(basedir), filename)
@@ -295,12 +295,33 @@ class Feature(object):
                     continue
                 mode = get_step_type(clean_line) or mode
 
-                allowed_prev_mode = (types.BACKGROUND, types.GIVEN, types.WHEN)
+                allowed_prev_mode = (types.BACKGROUND, types.GIVEN)
+                if not strict_gherkin:
+                    allowed_prev_mode += (types.WHEN, )
 
                 if not scenario and prev_mode not in allowed_prev_mode and mode in types.STEP_TYPES:
                     raise exceptions.FeatureError(
-                        "Step definition outside of a Scenario or a Background", line_number, clean_line, filename
-                    )
+                        "Step definition outside of a Scenario or a Background", line_number, clean_line, filename)
+
+                if strict_gherkin:
+                    if (self.background and not scenario and mode not in (
+                            types.SCENARIO, types.SCENARIO_OUTLINE, types.GIVEN, types.TAG)):
+                        raise exceptions.FeatureError(
+                            "Background section can only contain Given steps", line_number, clean_line, filename)
+
+                    if mode == types.GIVEN and prev_mode not in (
+                            types.GIVEN, types.SCENARIO, types.SCENARIO_OUTLINE, types.BACKGROUND):
+                        raise exceptions.FeatureError(
+                            "Given steps must be the first within the Scenario", line_number, clean_line, filename)
+
+                    if mode == types.WHEN and prev_mode not in (
+                            types.SCENARIO, types.SCENARIO_OUTLINE, types.GIVEN, types.WHEN):
+                        raise exceptions.FeatureError(
+                            "When steps must be the first or follow Given steps", line_number, clean_line, filename)
+
+                    if not self.background and mode == types.THEN and prev_mode not in types.STEP_TYPES:
+                        raise exceptions.FeatureError(
+                            "Then steps must follow Given or When steps", line_number, clean_line, filename)
 
                 if mode == types.FEATURE:
                     if prev_mode is None or prev_mode == types.TAG:
@@ -312,10 +333,7 @@ class Feature(object):
                     else:
                         raise exceptions.FeatureError(
                             "Multiple features are not allowed in a single feature file",
-                            line_number,
-                            clean_line,
-                            filename,
-                        )
+                            line_number, clean_line, filename)
 
                 prev_mode = mode
 
@@ -325,7 +343,10 @@ class Feature(object):
                     tags = get_tags(prev_line)
                     self.scenarios[parsed_line] = scenario = Scenario(self, parsed_line, line_number, tags=tags)
                 elif mode == types.BACKGROUND:
-                    self.background = Background(feature=self, line_number=line_number)
+                    self.background = Background(
+                        feature=self,
+                        line_number=line_number,
+                    )
                 elif mode == types.EXAMPLES:
                     mode = types.EXAMPLES_HEADERS
                     (scenario or self).examples.line_number = line_number
@@ -333,34 +354,33 @@ class Feature(object):
                     mode = types.EXAMPLE_LINE_VERTICAL
                     (scenario or self).examples.line_number = line_number
                 elif mode == types.EXAMPLES_HEADERS:
-                    (scenario or self).examples.set_param_names([l for l in split_line(parsed_line) if l])
+                    (scenario or self).examples.set_param_names(
+                        [l.strip() for l in parsed_line.split("|")[1:-1] if l.strip()])
                     mode = types.EXAMPLE_LINE
                 elif mode == types.EXAMPLE_LINE:
-                    (scenario or self).examples.add_example([l for l in split_line(stripped_line)])
+                    (scenario or self).examples.add_example([l.strip() for l in stripped_line.split("|")[1:-1]])
                 elif mode == types.EXAMPLE_LINE_VERTICAL:
-                    param_line_parts = [l for l in split_line(stripped_line)]
+                    param_line_parts = [l.strip() for l in stripped_line.split("|")[1:-1]]
                     try:
                         (scenario or self).examples.add_example_row(param_line_parts[0], param_line_parts[1:])
                     except exceptions.ExamplesNotValidError as exc:
                         if scenario:
                             raise exceptions.FeatureError(
-                                """Scenario has not valid examples. {0}""".format(exc.args[0]),
-                                line_number,
-                                clean_line,
-                                filename,
-                            )
+                                """Scenario has not valid examples. {0}""".format(
+                                    exc.args[0]), line_number, clean_line, filename)
                         else:
                             raise exceptions.FeatureError(
-                                """Feature has not valid examples. {0}""".format(exc.args[0]),
-                                line_number,
-                                clean_line,
-                                filename,
-                            )
+                                """Feature has not valid examples. {0}""".format(
+                                    exc.args[0]), line_number, clean_line, filename)
                 elif mode and mode not in (types.FEATURE, types.TAG):
                     step = Step(
-                        name=parsed_line, type=mode, indent=line_indent, line_number=line_number, keyword=keyword
+                        name=parsed_line,
+                        type=mode,
+                        indent=line_indent,
+                        line_number=line_number,
+                        keyword=keyword,
                     )
-                    if self.background and not scenario:
+                    if self.background and (mode == types.GIVEN or not strict_gherkin) and not scenario:
                         target = self.background
                     else:
                         target = scenario
@@ -370,12 +390,14 @@ class Feature(object):
         self.description = u"\n".join(description).strip()
 
     @classmethod
-    def get_feature(cls, base_path, filename, encoding="utf-8"):
+    def get_feature(cls, base_path, filename, encoding="utf-8", strict_gherkin=True):
         """Get a feature by the filename.
 
         :param str base_path: Base feature directory.
         :param str filename: Filename of the feature file.
         :param str encoding: Feature file encoding.
+        :param bool strict_gherkin: Flag whether it's a strictly gherkin scenario or not (e.g. it will validate correct
+            gherkin language (given-when-then))
 
         :return: `Feature` instance from the parsed feature cache.
 
@@ -386,7 +408,7 @@ class Feature(object):
         full_name = op.abspath(op.join(base_path, filename))
         feature = features.get(full_name)
         if not feature:
-            feature = Feature(base_path, filename, encoding=encoding)
+            feature = Feature(base_path, filename, encoding=encoding, strict_gherkin=strict_gherkin)
             features[full_name] = feature
         return feature
 
@@ -463,7 +485,7 @@ class Scenario(object):
             raise exceptions.ScenarioExamplesNotValidError(
                 """Scenario "{0}" in the feature "{1}" has not valid examples. """
                 """Set of step parameters {2} should match set of example values {3}.""".format(
-                    self.name, self.feature.filename, sorted(params), sorted(example_params)
+                    self.name, self.feature.filename, sorted(params), sorted(example_params),
                 )
             )
 
@@ -504,17 +526,7 @@ class Step(object):
     @property
     def name(self):
         """Get step name."""
-        multilines_content = textwrap.dedent("\n".join(self.lines)) if self.lines else ""
-
-        # Remove the multiline quotes, if present.
-        multilines_content = re.sub(
-            pattern=r'^"""\n(?P<content>.*)\n"""$',
-            repl=r"\g<content>",
-            string=multilines_content,
-            flags=re.DOTALL,  # Needed to make the "." match also new lines
-        )
-
-        lines = [self._name] + [multilines_content]
+        lines = [self._name] + ([textwrap.dedent("\n".join(self.lines))] if self.lines else [])
         return "\n".join(lines).strip()
 
     @name.setter
